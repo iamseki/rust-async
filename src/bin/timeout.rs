@@ -1,4 +1,4 @@
-use std::{future::{self, Future}, thread, time::Duration};
+use std::{future::{Future}, time::Duration};
 
 async fn timeout<F: Future>(
     future_to_try: F,

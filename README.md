@@ -1,5 +1,10 @@
 # Studying Async in Rust
 
+This is my study and practice of Chapters 16, 17 and 21 from [The Rust Programming Language book](https://rust-book.cs.brown.edu/ch16-00-concurrency.html), focusing on concurrency, async programming, and building a multithreaded web server. It highlights the lessons learned through reading and hands-on practice.
+
+- Each of the following sections points to a binary that you can run using cargo, i.e: `cargo run --bin listener`.
+
+
 ## `scraper.rs`
 
 - Rust does not have a built-in async runtime by  design. This allows different runtimes to optimize for different performance trade-offs based on use cases.
