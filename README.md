@@ -77,3 +77,14 @@ fn main() {
 ```
 
 - This also demonstrates that infinite loops are quite common in async Rust. Many programs need to keep running indefinitely. **This does not block anything else as long as there is at least one `await` point in each iteration of the loop**.
+
+## `web-server-st.rs`
+
+- A simple web server implementation that exposes the `/` and `/sleep` endpoints, with a 404 page included.
+- It demonstrates basic concepts, such as establishing TCP connections using streams.
+- It has a performance issue because the web server is single-threaded, if you call `/sleep' endpoint, other in-flight requests will be blocked.
+
+## `web-server-mt.rs`
+
+- Turn our single threaded implementation in a multi threading one using a threading pool with fixed workers to process incoming requests
+- hihglights the usage of `let job = receiver.lock().unwrap().recv().unwrap()` instead of `while let Ok(job) = receiver.lock().unwrap().recv()` because the lock is dropped based on the lifetime of MutexGuard and since any **temporary values on the right hand side of the equals side are immediataly dropped when the let statement ends**. With the while let thing the lock remains held for the duration until th end of iteration in the associated block {}.

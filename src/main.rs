@@ -1,59 +1,102 @@
-use std::{pin::pin, time::Duration};
-
-use trpl::{ReceiverStream, Stream, StreamExt};
+use std::{
+    fs::{self, read_to_string},
+    io::{BufRead, BufReader, Write},
+    net::{TcpListener, TcpStream},
+    sync::{mpsc, Arc, Mutex},
+    thread,
+    time::Duration,
+};
 
 fn main() {
-    trpl::run(async {
-        let messages = get_messages().timeout(Duration::from_millis(200));
-        let intervals = get_intervals()
-            .map(|count| format!("Interval: {count}"))
-            .throttle(Duration::from_millis(100))
-            .timeout(Duration::from_secs(10));
+    let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+    let pool = ThreadPool::new(4);
 
-        let merged = messages.merge(intervals).take(20);
-        let mut stream = pin!(merged);
+    for stream in listener.incoming() {
+        let stream = stream.unwrap();
 
-        while let Some(result) = stream.next().await {
-            match result {
-                Ok(msg) => println!("{msg}"),
-                Err(reason) => eprintln!("Problem: {reason:?}"),
-            }
-        }
-    });
+        pool.execute(|| {
+            handle_connection(stream);
+        });
+
+        println!("connection established");
+    }
 }
 
-fn get_messages() -> impl Stream<Item = String> {
-    let (tx, rx) = trpl::channel();
+fn handle_connection(mut stream: TcpStream) {
+    let buf_reader = BufReader::new(&stream);
+    let request_line = buf_reader.lines().next().unwrap().unwrap();
 
-    trpl::spawn_task(async move {
-        let messages = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"];
-        for (idx, msg) in messages.into_iter().enumerate() {
-            let time_to_sleep = if idx % 2 == 0 { 100 } else { 300 };
-            trpl::sleep(Duration::from_millis(time_to_sleep)).await;
-            if let Err(send_error) = tx.send(format!("Message: '{msg}'")) {
-                eprintln!("Cannot send message '{msg}': {send_error}");
-                break;
-            }
+    let (status_line, filename) = match &request_line[..] {
+        "GET / HTTP/1.1" => ("HTTP/1.1 200 OK", "hello.html"),
+        "GET /sleep HTTP/1.1" => {
+            thread::sleep(Duration::from_secs(5));
+            ("HTTP/1.1 200 OK", "hello.html")
         }
-    });
+        _ => ("HTTP/1.1 404 NOT FOUND", "404.html"),
+    };
 
-    ReceiverStream::new(rx)
+    let contents = fs::read_to_string(filename).unwrap();
+    let length = contents.len();
+
+    let response = format!("{status_line}\r\nContent-Length: {length}\r\n\r\n{contents}");
+
+    stream.write_all(response.as_bytes()).unwrap();
 }
 
-fn get_intervals() -> impl Stream<Item = u32> {
-    let (tx, rx) = trpl::channel();
+pub struct ThreadPool {
+    workers: Vec<Worker>,
+    sender: mpsc::Sender<Job>,
+}
 
-    trpl::spawn_task(async move {
-        let mut count = 0;
-        loop {
-            trpl::sleep(Duration::from_millis(1)).await;
-            count += 1;
-            if let Err(send_error) = tx.send(count) {
-                eprintln!("Could not send interval {count}: {send_error}");
-                break;
-            }
+type Job = Box<dyn FnOnce() + Send + 'static>;
+
+impl ThreadPool {
+    /// Create a new ThreadPool.
+    ///
+    /// The size is the number of threads in the pool.
+    ///
+    /// # Panics
+    ///
+    /// The `new` function will panic if the size is zero.
+    pub fn new(size: usize) -> ThreadPool {
+        assert!(size > 0);
+
+        let (sender, receiver) = mpsc::channel();
+        let receiver = Arc::new(Mutex::new(receiver));
+
+        let mut workers = Vec::with_capacity(size);
+
+        for id in 0..size {
+            workers.push(Worker::new(id, receiver.clone()));
         }
-    });
 
-    ReceiverStream::new(rx)
+        ThreadPool { workers, sender }
+    }
+
+    pub fn execute<F>(&self, f: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let job = Box::new(f);
+
+        self.sender.send(job).unwrap();
+    }
+}
+
+pub struct Worker {
+    id: usize,
+    thread: thread::JoinHandle<()>,
+}
+
+impl Worker {
+    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
+        let thread = thread::spawn(move || loop {
+            let job = receiver.lock().unwrap().recv().unwrap();
+
+            println!("Worker {id} got a job; executing.");
+
+            job();
+        });
+        Worker { id, thread }
+    }
 }
