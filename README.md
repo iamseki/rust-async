@@ -1,35 +1,37 @@
 # Studying Async in Rust
 
-## scraper.rs
+## `scraper.rs`
 
-- Rust has no async built in runtime, this is in purpose, so different use cases has different performance expectations.
+- Rust does not have a built-in async runtime by  design. This allows different runtimes to optimize for different performance trade-offs based on use cases.
 
-- This example demonstrate that we can't turn the main function into async without any third party library, so we just use a runtime in the main function to execute our async code with some concurrency with race function.
+- This example demonstrates that we can't make the `main` function `async` without using a third-party runtime. Instead, we use a runtime in `main` to execute our async code concurrently with the `race` function.
 
-- We also learn that rust translate this code in to the Future Trait for us, doing all the compiling check that we are use to it.
+- We also learn that Rust automatically translates async functions into the `Future` trait, performing all the necessary compile-time checks.
 
-## listener-block.rs
+## `listener-block.rs`
 
-- We deep dive in how comunicate between futures by using channels with some concurrency in mind again with join a fair method to await for futures to complete.
+- We explore how to communicate between async tasks using channels while maintaining concurrency. We use `join`, which fairly awaits multiple futures to complete.
 
-- Also with emphasis that the futureu is lazy, it will executed only when `await` is called.
+- Emphasizes that futures are **lazy**, they only execute when `.await` is called.
 
-- This program is a listener that never exits waiting for messages through a unbounded mpsc channel in rx.recv().await, given control back to the runtime do another thing until other message arrives, but the receiver never ends, could be useful for some use casese (pulsar consumer maybe).
+- This program implements a listener that continuously waits for messages via an **unbounded MPSC channel** (`rx.recv().await`). While waiting, it gives control back to the runtime, allowing other tasks to execute until a new message arrives. The receiver never exists, making it useful for ***long-running services like a Pulsar consumer***.
 
-## listener.rs
+## `listener.rs`
 
-- Now the listener exiting because we use async move, to move ownership to inside of the async block so at the end the tx channel is gone, and when this happens the mpsc channel just closed and when this happend recv() receives None, endind the while let Some(value) = rx.recv().await loop
+- Unlike `listener-block.rs`, this version exits when the `tx` channel is dropped.
 
-- Still limited to join method to run the futures concurrently
+- By using `async move`, we transfer ownership inside the async block. When `tx` is dropped, the **MPSC channel** automatically closes. At that point, `recv().await` returns _None_, ending the `while let Some(msg) = rx.recv().await` loop.
 
-## yield.rs
+## `yield.rs`
 
-- Show how to give control back to the async runtime in cases that we have a CPU bound synchronous blocking code. Using yield between function calls:
+- Demonstrates how to give control back to the async runtime when running CPU-bound synchronous code by manually yielding between function calls:
 ```rs
             slow("b", 75);
             trpl::yield_now().await;
             slow("b", 10);
             trpl::yield_now().await;
 ```
-- Watcht out with this manual yield, it might not be goot to performance, needs benchmarking, because its not free
-- It might be a good idea to manual yield if you expect concurrency code but it seem a more sequential one
+
+- Be cautious with manual yielding, it may negatively impact performance. Benchmarking is required since yielding is not free.
+
+- Manual yielding can be useful in scenarios where you expect concurrency execution but your code behaves more sequentially. However, it should be used only when necessary.
