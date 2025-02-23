@@ -35,3 +35,40 @@
 - Be cautious with manual yielding, it may negatively impact performance. Benchmarking is required since yielding is not free.
 
 - Manual yielding can be useful in scenarios where you expect concurrency execution but your code behaves more sequentially. However, it should be used only when necessary.
+
+## `timeout.rs`
+
+- More examples on how to use small blocks of futures to build a timeout function that takes an arbitrary `Future`.
+- It demonstrates that as long as we adhere to the `Future` contract, we can build our own async abstractions.
+
+## `streams.rs`
+
+- Streams can be used as an asynchronous way to retrive a bounded or unbounded list of items. This is useful for processing data from a network source and similar scenarios.
+
+- We can combine iterators/stream methods like `take`, `throttle`, `timeout`, and others.
+
+- I don't fully understand the usage of `pin!` yet:
+
+```rust
+fn main() {
+    trpl::run(async {
+        let messages = get_messages().timeout(Duration::from_millis(200));
+        let intervals = get_intervals()
+            .map(|count| format!("Interval: {count}"))
+            .throttle(Duration::from_millis(100))
+            .timeout(Duration::from_secs(10));
+
+        let merged = messages.merge(intervals).take(20);
+        let mut stream = pin!(merged);
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(msg) => println!("{msg}"),
+                Err(reason) => eprintln!("Problem: {reason:?}"),
+            }
+        }
+    });
+}
+```
+
+- This also demonstrates that infinite loops are quite common in async Rust. Many programs need to keep running indefinitely. **This does not block anything else as long as there is at least one `await` point in each iteration of the loop**.
